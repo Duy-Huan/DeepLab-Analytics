@@ -1,0 +1,6 @@
+{
+  "name": "DeepLab Analytics",
+  "description": "AI-Powered Deep Learning Experiment Analyzer for Hyperspectral Imaging, Computer Vision, and Reproducible ML Research",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
