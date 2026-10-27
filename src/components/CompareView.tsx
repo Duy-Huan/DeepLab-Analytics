@@ -1,24 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { calculateParetoFrontier } from '../utils/metrics';
 import {
   GitCompare,
   TrendingUp,
-  Cpu,
-  Clock,
+  Download,
+  Image as ImageIcon,
+  Palette,
   Sparkles,
   BarChart2,
-  CheckCircle2,
-  Layers,
-  ArrowRight,
-  Filter,
 } from 'lucide-react';
+import { ACADEMIC_STYLES, AcademicStyle, exportSvgAsFile, exportSvgAsPng } from '../utils/exportFigure';
 
 export default function CompareView() {
-  const { runs, selectedRunIds, toggleSelectRun, setActiveTab, setSelectedRunIds } = useApp();
+  const { runs, selectedRunIds, toggleSelectRun, setActiveTab, setSelectedRunIds, toast } = useApp();
 
   const [objective, setObjective] = useState<'overall_accuracy' | 'cohens_kappa' | 'macro_f1'>('overall_accuracy');
   const [efficiencyMetric, setEfficiencyMetric] = useState<'params_m' | 'flops_gflops' | 'inference_latency_ms'>('params_m');
+  const [academicStyle, setAcademicStyle] = useState<AcademicStyle>('ieee');
+  const [exporting, setExporting] = useState(false);
+
+  const paretoSvgRef = useRef<SVGSVGElement | null>(null);
+  const styleConfig = ACADEMIC_STYLES[academicStyle];
 
   const comparedRuns = runs.filter((r) => selectedRunIds.includes(r.id));
 
@@ -31,12 +34,32 @@ export default function CompareView() {
     false // Lower params/flops/latency is better
   );
 
-  // Best observed values among compared for highlighting
   const bestOA = comparedRuns.length > 0 ? Math.max(...comparedRuns.map((r) => r.results.overall_accuracy)) : 0;
   const bestKappa = comparedRuns.length > 0 ? Math.max(...comparedRuns.map((r) => r.results.cohens_kappa)) : 0;
   const minParams = comparedRuns.filter((r) => r.results.params_m != null).length > 0
     ? Math.min(...comparedRuns.filter((r) => r.results.params_m != null).map((r) => r.results.params_m!))
     : 0;
+
+  const handleExportSVG = () => {
+    if (!paretoSvgRef.current) return;
+    const filename = `pareto_tradeoff_${objective}_${efficiencyMetric}_${academicStyle}`;
+    exportSvgAsFile(paretoSvgRef.current, filename);
+    toast(`Exported Pareto figure as ${filename}.svg`, 'success');
+  };
+
+  const handleExportPNG = async () => {
+    if (!paretoSvgRef.current) return;
+    try {
+      setExporting(true);
+      const filename = `pareto_tradeoff_${objective}_${efficiencyMetric}_${academicStyle}`;
+      await exportSvgAsPng(paretoSvgRef.current, filename, 3.0);
+      toast(`Exported 300 DPI publication figure (${filename}_300dpi.png)`, 'success');
+    } catch (err: any) {
+      toast('Failed to render PNG export', 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -64,9 +87,9 @@ export default function CompareView() {
       </div>
 
       {/* Run Selection Bar */}
-      <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 space-y-3">
+      <div className="p-4 rounded-xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 space-y-3 shadow-xs">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-gray-700 dark:text-zinc-300">
+          <span className="text-xs font-semibold text-gray-800 dark:text-zinc-200">
             Select Runs to Compare ({selectedRunIds.length} active):
           </span>
           <button
@@ -87,7 +110,7 @@ export default function CompareView() {
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center space-x-1.5 transition-all ${
                   isSelected
                     ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                    : 'bg-gray-50 dark:bg-zinc-800/80 text-gray-700 dark:text-zinc-300 border-gray-200 dark:border-zinc-700 hover:border-blue-400'
+                    : 'bg-gray-50 dark:bg-zinc-800/80 text-gray-800 dark:text-zinc-200 border-gray-300 dark:border-zinc-700 hover:border-blue-500'
                 }`}
               >
                 <span>{r.name}</span>
@@ -101,7 +124,7 @@ export default function CompareView() {
       {comparedRuns.length === 0 ? (
         <div className="p-12 text-center rounded-xl bg-white dark:bg-zinc-900 border border-dashed border-gray-300 dark:border-zinc-700 space-y-2">
           <GitCompare className="w-8 h-8 text-gray-400 mx-auto" />
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-zinc-300">No Runs Selected</h3>
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-zinc-200">No Runs Selected</h3>
           <p className="text-xs text-gray-500 dark:text-zinc-400">
             Click on at least two runs above or in the Experiments table to generate side-by-side matrices.
           </p>
@@ -115,7 +138,7 @@ export default function CompareView() {
                 <BarChart2 className="w-4 h-4 text-blue-500" />
                 <span>Side-by-Side Architectural Evaluation</span>
               </h2>
-              <span className="text-xs text-gray-400 font-mono">
+              <span className="text-xs text-gray-500 dark:text-zinc-400 font-mono">
                 {comparedRuns.length} models evaluated
               </span>
             </div>
@@ -123,12 +146,12 @@ export default function CompareView() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="bg-gray-50 dark:bg-zinc-800/70 border-b border-gray-200 dark:border-zinc-800 text-gray-500 dark:text-zinc-400 font-mono text-[10px] uppercase">
+                  <tr className="bg-gray-50 dark:bg-zinc-800/70 border-b border-gray-200 dark:border-zinc-800 text-gray-600 dark:text-zinc-400 font-mono text-[10px] uppercase">
                     <th className="p-3">Attribute / Metric</th>
                     {comparedRuns.map((r) => (
                       <th key={r.id} className="p-3 text-right min-w-[140px]">
                         <div className="font-bold text-gray-900 dark:text-zinc-100">{r.name}</div>
-                        <div className="text-[10px] text-gray-400">{r.id}</div>
+                        <div className="text-[10px] text-gray-500">{r.id}</div>
                       </th>
                     ))}
                   </tr>
@@ -136,10 +159,10 @@ export default function CompareView() {
                 <tbody className="divide-y divide-gray-100 dark:divide-zinc-800 font-mono">
                   {/* Architecture */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Architecture Family</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Architecture Family</td>
                     {comparedRuns.map((r) => (
                       <td key={r.id} className="p-3 text-right">
-                        <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300 text-[11px]">
+                        <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-zinc-200 text-[11px]">
                           {r.hyperparameters.model_family}
                         </span>
                       </td>
@@ -148,7 +171,7 @@ export default function CompareView() {
 
                   {/* Dataset & Split */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Dataset & Split</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Dataset & Split</td>
                     {comparedRuns.map((r) => (
                       <td key={r.id} className="p-3 text-right text-[11px] text-gray-600 dark:text-zinc-400">
                         {r.metadata.dataset} (10% train)
@@ -157,7 +180,7 @@ export default function CompareView() {
                   </tr>
 
                   {/* Overall Accuracy (OA) */}
-                  <tr className="bg-emerald-50/20 dark:bg-emerald-950/10">
+                  <tr className="bg-emerald-50/40 dark:bg-emerald-950/20">
                     <td className="p-3 font-sans font-semibold text-gray-900 dark:text-zinc-100">
                       Overall Accuracy (OA)
                     </td>
@@ -165,7 +188,7 @@ export default function CompareView() {
                       const isBest = r.results.overall_accuracy === bestOA;
                       return (
                         <td key={r.id} className="p-3 text-right font-bold text-sm">
-                          <span className={isBest ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-gray-800 dark:text-zinc-200'}>
+                          <span className={isBest ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-gray-900 dark:text-zinc-200'}>
                             {r.results.overall_accuracy.toFixed(2)}%
                             {isBest && ' ★'}
                           </span>
@@ -176,9 +199,9 @@ export default function CompareView() {
 
                   {/* Average Accuracy (AA) */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Average Accuracy (AA)</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Average Accuracy (AA)</td>
                     {comparedRuns.map((r) => (
-                      <td key={r.id} className="p-3 text-right">
+                      <td key={r.id} className="p-3 text-right text-gray-800 dark:text-zinc-200">
                         {r.results.average_accuracy.toFixed(2)}%
                       </td>
                     ))}
@@ -186,12 +209,12 @@ export default function CompareView() {
 
                   {/* Cohen's Kappa */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Cohen's Kappa (κ)</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Cohen's Kappa (κ)</td>
                     {comparedRuns.map((r) => {
                       const isBest = r.results.cohens_kappa === bestKappa;
                       return (
                         <td key={r.id} className="p-3 text-right">
-                          <span className={isBest ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''}>
+                          <span className={isBest ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-gray-800 dark:text-zinc-200'}>
                             {r.results.cohens_kappa.toFixed(4)}
                           </span>
                         </td>
@@ -201,16 +224,16 @@ export default function CompareView() {
 
                   {/* Macro F1 */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Macro F1 Score</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Macro F1 Score</td>
                     {comparedRuns.map((r) => (
-                      <td key={r.id} className="p-3 text-right">
+                      <td key={r.id} className="p-3 text-right text-gray-800 dark:text-zinc-200">
                         {r.results.macro_f1.toFixed(2)}%
                       </td>
                     ))}
                   </tr>
 
                   {/* Parameters */}
-                  <tr className="bg-purple-50/20 dark:bg-purple-950/10">
+                  <tr className="bg-purple-50/40 dark:bg-purple-950/20">
                     <td className="p-3 font-sans font-semibold text-gray-900 dark:text-zinc-100">
                       Parameters (M)
                     </td>
@@ -219,7 +242,7 @@ export default function CompareView() {
                       return (
                         <td key={r.id} className="p-3 text-right">
                           {r.results.params_m != null ? (
-                            <span className={isMin ? 'text-purple-600 dark:text-purple-400 font-bold' : ''}>
+                            <span className={isMin ? 'text-purple-600 dark:text-purple-400 font-bold' : 'text-gray-800 dark:text-zinc-200'}>
                               {r.results.params_m}M {isMin && '(Most Efficient)'}
                             </span>
                           ) : (
@@ -232,9 +255,9 @@ export default function CompareView() {
 
                   {/* FLOPs */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Computation (GFLOPs)</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Computation (GFLOPs)</td>
                     {comparedRuns.map((r) => (
-                      <td key={r.id} className="p-3 text-right">
+                      <td key={r.id} className="p-3 text-right text-gray-800 dark:text-zinc-200">
                         {r.results.flops_gflops != null ? `${r.results.flops_gflops} G` : 'N/A'}
                       </td>
                     ))}
@@ -242,9 +265,9 @@ export default function CompareView() {
 
                   {/* Latency */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Inference Latency</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Inference Latency</td>
                     {comparedRuns.map((r) => (
-                      <td key={r.id} className="p-3 text-right">
+                      <td key={r.id} className="p-3 text-right text-gray-800 dark:text-zinc-200">
                         {r.results.inference_latency_ms != null ? `${r.results.inference_latency_ms} ms` : 'N/A'}
                       </td>
                     ))}
@@ -252,16 +275,16 @@ export default function CompareView() {
 
                   {/* Training Duration */}
                   <tr>
-                    <td className="p-3 font-sans font-medium text-gray-700 dark:text-zinc-300">Training Duration</td>
+                    <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">Training Duration</td>
                     {comparedRuns.map((r) => (
-                      <td key={r.id} className="p-3 text-right text-gray-500">
+                      <td key={r.id} className="p-3 text-right text-gray-600 dark:text-zinc-400">
                         {r.results.training_duration_s ? `${r.results.training_duration_s.toFixed(1)}s` : 'N/A'}
                       </td>
                     ))}
                   </tr>
 
                   {/* Pareto Status */}
-                  <tr className="bg-blue-50/30 dark:bg-blue-950/20">
+                  <tr className="bg-blue-50/50 dark:bg-blue-950/20">
                     <td className="p-3 font-sans font-bold text-gray-900 dark:text-zinc-100">
                       Pareto Frontier Status
                     </td>
@@ -274,7 +297,7 @@ export default function CompareView() {
                               <span>Pareto Optimal</span>
                             </span>
                           ) : (
-                            <span className="text-[10px] text-gray-400">Dominated</span>
+                            <span className="text-[10px] text-gray-500 dark:text-zinc-500">Dominated</span>
                           )}
                         </td>
                       );
@@ -286,7 +309,7 @@ export default function CompareView() {
           </div>
 
           {/* Pareto Frontier Scatter / Trade-Off Analysis */}
-          <div className="rounded-xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <div className="rounded-xl border border-gray-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-gray-900 dark:text-zinc-100 flex items-center space-x-2">
@@ -294,77 +317,151 @@ export default function CompareView() {
                   <span>Pareto Efficiency Trade-Off Curve</span>
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">
-                  Models on the outer frontier maximize accuracy for a given computational constraint.
+                  Export vector SVG or 300 DPI PNG figures formatted for academic journals.
                 </p>
               </div>
 
-              <div className="flex items-center space-x-2 text-xs">
-                <span className="text-gray-400">Efficiency Axis:</span>
-                <select
-                  value={efficiencyMetric}
-                  onChange={(e) => setEfficiencyMetric(e.target.value as any)}
-                  className="bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-md px-2.5 py-1 text-gray-800 dark:text-zinc-200 focus:outline-none"
+              {/* Controls */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <div className="flex items-center space-x-1.5">
+                  <Palette className="w-3.5 h-3.5 text-indigo-500" />
+                  <select
+                    value={academicStyle}
+                    onChange={(e) => setAcademicStyle(e.target.value as AcademicStyle)}
+                    className="bg-gray-50 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md px-2 py-1 text-gray-800 dark:text-zinc-200 font-medium"
+                  >
+                    <option value="ieee">IEEE Style</option>
+                    <option value="nature">Nature / Springer</option>
+                    <option value="neurips">NeurIPS Style</option>
+                    <option value="monochrome">Monochrome Print</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-gray-500">X-Axis:</span>
+                  <select
+                    value={efficiencyMetric}
+                    onChange={(e) => setEfficiencyMetric(e.target.value as any)}
+                    className="bg-gray-50 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md px-2 py-1 text-gray-800 dark:text-zinc-200 focus:outline-none"
+                  >
+                    <option value="params_m">Parameters (M)</option>
+                    <option value="flops_gflops">GFLOPs</option>
+                    <option value="inference_latency_ms">Latency (ms)</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={handleExportSVG}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 text-gray-800 dark:text-zinc-200 font-medium border border-gray-300 dark:border-zinc-700"
                 >
-                  <option value="params_m">Parameters (M) - Lower is Better</option>
-                  <option value="flops_gflops">Computation (GFLOPs) - Lower is Better</option>
-                  <option value="inference_latency_ms">Latency (ms) - Lower is Better</option>
-                </select>
+                  <Download className="w-3 h-3 text-blue-500" />
+                  <span>Export SVG</span>
+                </button>
+
+                <button
+                  onClick={handleExportPNG}
+                  disabled={exporting}
+                  className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-xs disabled:opacity-50"
+                >
+                  <ImageIcon className="w-3 h-3" />
+                  <span>{exporting ? 'Rendering...' : '300 DPI PNG'}</span>
+                </button>
               </div>
             </div>
 
-            {/* Interactive SVG Pareto Curve */}
-            <div className="h-64 border border-gray-100 dark:border-zinc-800 rounded-lg p-4 bg-gray-50/50 dark:bg-zinc-950/50 relative flex flex-col justify-between">
-              {/* Plot canvas */}
-              <div className="relative w-full h-full">
+            {/* Standalone SVG Pareto Canvas for Paper Export */}
+            <div className="border border-gray-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-950 p-4">
+              <svg
+                ref={paretoSvgRef}
+                viewBox="0 0 900 360"
+                className="w-full h-72 select-none"
+                style={{ fontFamily: styleConfig.fontFamily }}
+              >
+                <rect x="0" y="0" width="900" height="360" fill={styleConfig.bgFill} />
+
+                {/* Figure Title */}
+                <text x="60" y="25" className="font-bold text-[13px]" fill={styleConfig.textFill}>
+                  Pareto Frontier: Accuracy vs Computational Complexity ({styleConfig.name})
+                </text>
+
+                {/* Grid Lines */}
+                {[0, 0.25, 0.5, 0.75, 1.0].map((frac, idx) => {
+                  const y = 50 + frac * 240;
+                  const accLabel = (100 - frac * 15).toFixed(1) + '%';
+                  return (
+                    <g key={idx}>
+                      <line
+                        x1="70"
+                        y1={y}
+                        x2="850"
+                        y2={y}
+                        stroke={styleConfig.gridStroke}
+                        strokeDasharray="4 4"
+                      />
+                      <text x="62" y={y + 4} textAnchor="end" className="text-[10px]" fill={styleConfig.subtextFill}>
+                        {accLabel}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Axis Spines */}
+                <line x1="70" y1="50" x2="70" y2="290" stroke={styleConfig.axisStroke} strokeWidth="1.5" />
+                <line x1="70" y1="290" x2="850" y2="290" stroke={styleConfig.axisStroke} strokeWidth="1.5" />
+                {(academicStyle === 'ieee' || academicStyle === 'monochrome') && (
+                  <>
+                    <line x1="850" y1="50" x2="850" y2="290" stroke={styleConfig.axisStroke} strokeWidth="1.5" />
+                    <line x1="70" y1="50" x2="850" y2="50" stroke={styleConfig.axisStroke} strokeWidth="1.5" />
+                  </>
+                )}
+
+                {/* X-Axis and Y-Axis Labels */}
+                <text x="460" y="325" textAnchor="middle" className="text-[11px] font-bold" fill={styleConfig.textFill}>
+                  {efficiencyMetric.replace('_', ' ').toUpperCase()} (Lower is Better)
+                </text>
+                <text
+                  x="20"
+                  y="170"
+                  textAnchor="middle"
+                  transform="rotate(-90, 20, 170)"
+                  className="text-[11px] font-bold"
+                  fill={styleConfig.textFill}
+                >
+                  Overall Accuracy (OA %)
+                </text>
+
+                {/* Points on Canvas */}
                 {comparedRuns.map((r) => {
                   const xVal = r.results[efficiencyMetric] ?? 1;
                   const yVal = r.results[objective];
                   const isPareto = paretoRuns.some((p) => p.id === r.id);
 
-                  // Normalized coordinates (0 to 100%)
-                  // x range: 0.1 to 15 (params or flops)
-                  const xPct = Math.min(90, Math.max(10, (xVal / 14) * 80 + 10));
-                  // y range: 85 to 100 (%)
-                  const yPct = Math.min(90, Math.max(10, ((100 - yVal) / 15) * 80 + 10));
+                  // Normalized coordinates (70 to 850 in X, 50 to 290 in Y)
+                  const x = 70 + Math.min(760, Math.max(20, (xVal / 14) * 720));
+                  const y = 50 + Math.min(230, Math.max(10, ((100 - yVal) / 15) * 230));
 
                   return (
-                    <div
-                      key={r.id}
-                      style={{ left: `${xPct}%`, top: `${yPct}%` }}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 group cursor-pointer"
-                    >
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 transition-transform group-hover:scale-150 flex items-center justify-center ${
-                          isPareto
-                            ? 'bg-emerald-500 border-white dark:border-zinc-900 shadow-md shadow-emerald-500/50'
-                            : 'bg-gray-400 border-white dark:border-zinc-900'
-                        }`}
+                    <g key={r.id} className="cursor-pointer">
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={isPareto ? 7 : 5}
+                        fill={isPareto ? styleConfig.paretoColor : (academicStyle === 'monochrome' ? '#9ca3af' : '#6b7280')}
+                        stroke={isPareto ? (academicStyle === 'monochrome' ? '#000000' : '#ffffff') : '#ffffff'}
+                        strokeWidth="2"
                       />
-
-                      {/* Tooltip */}
-                      <div className="absolute left-1/2 bottom-full mb-1.5 -translate-x-1/2 hidden group-hover:block z-20 bg-gray-900 text-white text-[11px] p-2 rounded-md shadow-lg pointer-events-none whitespace-nowrap font-mono">
-                        <div className="font-bold">{r.name}</div>
-                        <div>{objective.toUpperCase()}: {yVal}%</div>
-                        <div>{efficiencyMetric}: {xVal}</div>
-                        <div className={isPareto ? 'text-emerald-400 font-bold' : 'text-gray-400'}>
-                          {isPareto ? '✓ Pareto Optimal' : 'Dominated'}
-                        </div>
-                      </div>
-                    </div>
+                      <text
+                        x={x + 10}
+                        y={y + 4}
+                        className="text-[10px] font-mono font-bold"
+                        fill={isPareto ? styleConfig.textFill : styleConfig.subtextFill}
+                      >
+                        {r.name} ({yVal}%)
+                      </text>
+                    </g>
                   );
                 })}
-
-                {/* Axes labels */}
-                <div className="absolute left-2 top-2 text-[10px] font-mono text-gray-400">
-                  ▲ High Accuracy (OA)
-                </div>
-                <div className="absolute right-2 bottom-2 text-[10px] font-mono text-gray-400">
-                  Heavy Compute ►
-                </div>
-                <div className="absolute left-2 bottom-2 text-[10px] font-mono text-emerald-500 font-semibold">
-                  ★ Ideal Frontier (High Accuracy, Low Compute)
-                </div>
-              </div>
+              </svg>
             </div>
           </div>
         </>

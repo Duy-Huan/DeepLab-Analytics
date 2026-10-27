@@ -1,16 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Boxes,
   Grid,
   Info,
-  Layers,
-  Database,
-  BarChart3,
-  Sliders,
+  Download,
+  Image as ImageIcon,
+  Palette,
   Sparkles,
-  CheckCircle2,
 } from 'lucide-react';
+import { ACADEMIC_STYLES, AcademicStyle, exportSvgAsFile, exportSvgAsPng } from '../utils/exportFigure';
 
 const HSI_DATASET_SPECS: Record<
   string,
@@ -26,7 +25,7 @@ const HSI_DATASET_SPECS: Record<
 > = {
   'Indian Pines': {
     sensor: 'AVIRIS (Airborne Visible / Infrared Imaging Spectrometer)',
-    bands: 200, // calibrated (24 water absorption bands removed: 104-108, 150-163, 220)
+    bands: 200,
     classes: 16,
     spatial_res: '20 meters / pixel (145 x 145)',
     spectral_range: '0.4 – 2.5 µm (continuous)',
@@ -53,7 +52,7 @@ const HSI_DATASET_SPECS: Record<
   },
   'Pavia University': {
     sensor: 'ROSIS (Reflective Optics System Imaging Spectrometer)',
-    bands: 103, // 12 noisy bands removed
+    bands: 103,
     classes: 9,
     spatial_res: '1.3 meters / pixel (610 x 340)',
     spectral_range: '0.43 – 0.86 µm',
@@ -127,12 +126,16 @@ const HSI_DATASET_SPECS: Record<
 };
 
 export default function HsiAnalysisView() {
-  const { runs, inspectRunId, setInspectRunId, setActiveTab } = useApp();
+  const { runs, inspectRunId, setInspectRunId, toast } = useApp();
 
   const [selectedDataset, setSelectedDataset] = useState<string>('Indian Pines');
-  const datasetSpec = HSI_DATASET_SPECS[selectedDataset] || HSI_DATASET_SPECS['Indian Pines'];
+  const [academicStyle, setAcademicStyle] = useState<AcademicStyle>('ieee');
+  const [exporting, setExporting] = useState(false);
+  const matrixSvgRef = useRef<SVGSVGElement | null>(null);
 
-  // Runs matching this dataset
+  const datasetSpec = HSI_DATASET_SPECS[selectedDataset] || HSI_DATASET_SPECS['Indian Pines'];
+  const styleConfig = ACADEMIC_STYLES[academicStyle];
+
   const datasetRuns = runs.filter((r) =>
     r.metadata.dataset.toLowerCase().includes(selectedDataset.toLowerCase())
   );
@@ -144,13 +147,33 @@ export default function HsiAnalysisView() {
 
   const [hoveredCell, setHoveredCell] = useState<{ actual: number; pred: number; count: number } | null>(null);
 
-  // Find max value in matrix for heatmap scaling
   let maxCellVal = 1;
   for (let i = 0; i < matrix.length; i++) {
     for (let j = 0; j < matrix[i].length; j++) {
       if (matrix[i][j] > maxCellVal) maxCellVal = matrix[i][j];
     }
   }
+
+  const handleExportSVG = () => {
+    if (!matrixSvgRef.current) return;
+    const filename = `${activeRun?.name.replace(/\s+/g, '_')}_confusion_matrix_${academicStyle}`;
+    exportSvgAsFile(matrixSvgRef.current, filename);
+    toast(`Exported confusion matrix as ${filename}.svg`, 'success');
+  };
+
+  const handleExportPNG = async () => {
+    if (!matrixSvgRef.current) return;
+    try {
+      setExporting(true);
+      const filename = `${activeRun?.name.replace(/\s+/g, '_')}_confusion_matrix_${academicStyle}`;
+      await exportSvgAsPng(matrixSvgRef.current, filename, 3.0);
+      toast(`Exported 300 DPI publication confusion matrix (${filename}_300dpi.png)`, 'success');
+    } catch (err: any) {
+      toast('Failed to render PNG export', 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -195,54 +218,54 @@ export default function HsiAnalysisView() {
               {datasetSpec.bands} Calibrated Bands
             </span>
           </div>
-          <span className="text-xs font-mono text-gray-400">
+          <span className="text-xs font-mono text-gray-500 dark:text-zinc-400">
             {datasetSpec.classes} Ground Truth Classes
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono">
-          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-100 dark:border-zinc-800">
-            <span className="text-gray-400 block text-[10px]">Sensor & Imager:</span>
-            <span className="font-semibold text-gray-800 dark:text-zinc-200 mt-1 block">
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-800">
+            <span className="text-gray-500 dark:text-zinc-400 block text-[10px]">Sensor & Imager:</span>
+            <span className="font-semibold text-gray-900 dark:text-zinc-200 mt-1 block">
               {datasetSpec.sensor}
             </span>
           </div>
 
-          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-100 dark:border-zinc-800">
-            <span className="text-gray-400 block text-[10px]">Spectral Range:</span>
-            <span className="font-semibold text-gray-800 dark:text-zinc-200 mt-1 block">
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-800">
+            <span className="text-gray-500 dark:text-zinc-400 block text-[10px]">Spectral Range:</span>
+            <span className="font-semibold text-gray-900 dark:text-zinc-200 mt-1 block">
               {datasetSpec.spectral_range}
             </span>
           </div>
 
-          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-100 dark:border-zinc-800">
-            <span className="text-gray-400 block text-[10px]">Spatial Resolution:</span>
-            <span className="font-semibold text-gray-800 dark:text-zinc-200 mt-1 block">
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-800">
+            <span className="text-gray-500 dark:text-zinc-400 block text-[10px]">Spatial Resolution:</span>
+            <span className="font-semibold text-gray-900 dark:text-zinc-200 mt-1 block">
               {datasetSpec.spatial_res}
             </span>
           </div>
 
-          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-100 dark:border-zinc-800">
-            <span className="text-gray-400 block text-[10px]">Split Integrity:</span>
+          <div className="p-3 rounded-lg bg-gray-50 dark:bg-zinc-800/50 border border-gray-200 dark:border-zinc-800">
+            <span className="text-gray-500 dark:text-zinc-400 block text-[10px]">Split Integrity:</span>
             <span className="font-semibold text-emerald-600 dark:text-emerald-400 mt-1 block">
               Disjoint Partitioning (Zero Leakage)
             </span>
           </div>
         </div>
 
-        <p className="text-xs text-gray-600 dark:text-zinc-400 leading-relaxed font-sans">
+        <p className="text-xs text-gray-700 dark:text-zinc-300 leading-relaxed font-sans">
           {datasetSpec.description}
         </p>
       </div>
 
-      {/* Model Run Active for Matrix */}
-      <div className="flex items-center justify-between bg-gray-50 dark:bg-zinc-800/60 p-3.5 rounded-xl border border-gray-200 dark:border-zinc-800 text-xs">
+      {/* Model Run Active for Matrix & Academic Export Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-zinc-900 p-4 rounded-xl border border-gray-200 dark:border-zinc-800 text-xs shadow-xs">
         <div className="flex items-center space-x-2">
-          <span className="text-gray-500 font-medium">Inspecting Model Run:</span>
+          <span className="text-gray-600 dark:text-zinc-400 font-medium">Inspecting Model:</span>
           <select
             value={activeRun?.id || ''}
             onChange={(e) => setInspectRunId(e.target.value)}
-            className="font-bold bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-700 rounded-md px-2.5 py-1 text-gray-900 dark:text-zinc-100 focus:outline-none"
+            className="font-bold bg-gray-50 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md px-2.5 py-1 text-gray-900 dark:text-zinc-100 focus:outline-none"
           >
             {runs.map((r) => (
               <option key={r.id} value={r.id}>
@@ -252,30 +275,54 @@ export default function HsiAnalysisView() {
           </select>
         </div>
 
-        <div className="flex items-center space-x-4 font-mono font-bold">
-          <span className="text-emerald-600 dark:text-emerald-400">
-            OA: {activeRun?.results.overall_accuracy.toFixed(2)}%
-          </span>
-          <span className="text-blue-600 dark:text-blue-400">
-            AA: {activeRun?.results.average_accuracy.toFixed(2)}%
-          </span>
-          <span className="text-purple-600 dark:text-purple-400">
-            κ: {activeRun?.results.cohens_kappa.toFixed(4)}
-          </span>
+        {/* Academic Style Picker & Export Buttons */}
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5">
+            <Palette className="w-3.5 h-3.5 text-indigo-500" />
+            <select
+              value={academicStyle}
+              onChange={(e) => setAcademicStyle(e.target.value as AcademicStyle)}
+              className="bg-gray-50 dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-md px-2 py-1 text-gray-800 dark:text-zinc-200 font-medium"
+            >
+              <option value="ieee">IEEE Style</option>
+              <option value="nature">Nature / Springer</option>
+              <option value="neurips">NeurIPS (Viridis)</option>
+              <option value="monochrome">Monochrome Print</option>
+            </select>
+          </div>
+
+          <button
+            onClick={handleExportSVG}
+            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 text-gray-700 dark:text-zinc-300 font-medium border border-gray-300 dark:border-zinc-700"
+            title="Export vector SVG"
+          >
+            <Download className="w-3 h-3 text-blue-500" />
+            <span>Export SVG</span>
+          </button>
+
+          <button
+            onClick={handleExportPNG}
+            disabled={exporting}
+            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-xs disabled:opacity-50"
+            title="Export 300 DPI high-resolution PNG for LaTeX"
+          >
+            <ImageIcon className="w-3 h-3" />
+            <span>{exporting ? 'Rendering...' : '300 DPI PNG'}</span>
+          </button>
         </div>
       </div>
 
-      {/* Interactive Confusion Matrix Heatmap */}
+      {/* Interactive Confusion Matrix Heatmap (SVG Rendered for crisp vector export) */}
       <div className="rounded-xl bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 p-5 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Grid className="w-4 h-4 text-blue-500" />
             <h3 className="text-sm font-bold text-gray-900 dark:text-zinc-100">
-              Interactive Confusion Matrix ({matrix.length} × {matrix.length})
+              Confusion Matrix ({matrix.length} × {matrix.length}) — {styleConfig.name}
             </h3>
           </div>
-          <span className="text-[11px] text-gray-400 font-mono">
-            Hover cell to inspect actual vs predicted pixel counts
+          <span className="text-[11px] text-gray-500 dark:text-zinc-400 font-mono">
+            OA: {activeRun?.results.overall_accuracy.toFixed(2)}% | κ: {activeRun?.results.cohens_kappa.toFixed(4)}
           </span>
         </div>
 
@@ -286,63 +333,159 @@ export default function HsiAnalysisView() {
         ) : (
           <div className="overflow-x-auto pb-2">
             <div className="inline-block min-w-full">
-              <div className="grid gap-[2px]" style={{ gridTemplateColumns: `80px repeat(${matrix.length}, minmax(36px, 1fr))` }}>
-                {/* Header row */}
-                <div className="text-[9px] font-mono font-bold text-gray-400 text-right pr-2">Actual \ Pred</div>
+              {/* Standalone SVG representation for clean paper export */}
+              <svg
+                ref={matrixSvgRef}
+                viewBox={`0 0 ${matrix.length * 42 + 90} ${matrix.length * 42 + 100}`}
+                className="w-full max-w-[850px] mx-auto select-none font-mono"
+                style={{ fontFamily: styleConfig.fontFamily }}
+              >
+                <rect
+                  x="0"
+                  y="0"
+                  width={matrix.length * 42 + 90}
+                  height={matrix.length * 42 + 100}
+                  fill={styleConfig.bgFill}
+                />
+
+                {/* Figure Title */}
+                <text
+                  x="45"
+                  y="25"
+                  className="font-bold text-[13px]"
+                  fill={styleConfig.textFill}
+                >
+                  {activeRun?.name} ({selectedDataset}) — Confusion Matrix ({styleConfig.name})
+                </text>
+
+                {/* Column Headers (Predicted) */}
+                <text
+                  x={(matrix.length * 42 + 90) / 2}
+                  y="48"
+                  textAnchor="middle"
+                  className="text-[10px] font-bold"
+                  fill={styleConfig.textFill}
+                >
+                  Predicted Class Index
+                </text>
+
                 {classNames.slice(0, matrix.length).map((cn, idx) => (
-                  <div
+                  <text
                     key={idx}
-                    className="text-[9px] font-mono text-center text-gray-500 dark:text-zinc-400 truncate px-0.5"
-                    title={`C${idx + 1}: ${cn}`}
+                    x={75 + idx * 42 + 21}
+                    y="65"
+                    textAnchor="middle"
+                    className="text-[9px]"
+                    fill={styleConfig.subtextFill}
                   >
                     C{idx + 1}
-                  </div>
+                  </text>
                 ))}
 
-                {/* Matrix rows */}
+                {/* Y Axis Title */}
+                <text
+                  x="15"
+                  y={(matrix.length * 42 + 100) / 2}
+                  textAnchor="middle"
+                  transform={`rotate(-90, 15, ${(matrix.length * 42 + 100) / 2})`}
+                  className="text-[10px] font-bold"
+                  fill={styleConfig.textFill}
+                >
+                  Actual Class
+                </text>
+
+                {/* Cells and Row Labels */}
                 {matrix.map((row, i) => (
-                  <React.Fragment key={i}>
-                    {/* Row label */}
-                    <div
-                      className="text-[9px] font-mono text-gray-600 dark:text-zinc-400 font-semibold truncate pr-2 text-right"
-                      title={`C${i + 1}: ${classNames[i]}`}
+                  <g key={i}>
+                    {/* Row Label */}
+                    <text
+                      x="65"
+                      y={75 + i * 42 + 25}
+                      textAnchor="end"
+                      className="text-[9px] font-semibold"
+                      fill={styleConfig.subtextFill}
                     >
                       C{i + 1}
-                    </div>
+                    </text>
 
                     {/* Cells */}
                     {row.map((val, j) => {
                       const isDiagonal = i === j;
                       const ratio = val / maxCellVal;
-                      const intensity = Math.min(1, Math.pow(ratio, 0.4));
+                      const x = 75 + j * 42;
+                      const y = 75 + i * 42;
+
+                      let cellFill = '#f9fafb';
+                      let textFill = '#9ca3af';
+
+                      if (academicStyle === 'monochrome') {
+                        // Print-ready grayscale
+                        if (val > 0) {
+                          const gray = Math.round(255 - Math.min(1, Math.pow(ratio, 0.4)) * 210);
+                          cellFill = `rgb(${gray}, ${gray}, ${gray})`;
+                          textFill = gray < 130 ? '#ffffff' : '#000000';
+                        }
+                      } else if (academicStyle === 'neurips') {
+                        // Viridis colormap
+                        if (val > 0) {
+                          const t = Math.min(1, Math.pow(ratio, 0.45));
+                          cellFill = isDiagonal
+                            ? `rgba(33, 145, 140, ${Math.max(0.25, t)})`
+                            : `rgba(68, 1, 84, ${Math.max(0.15, t)})`;
+                          textFill = '#0f172a';
+                        }
+                      } else if (academicStyle === 'nature') {
+                        // Okabe-Ito colors
+                        if (val > 0) {
+                          const t = Math.min(1, Math.pow(ratio, 0.4));
+                          cellFill = isDiagonal
+                            ? `rgba(0, 158, 115, ${Math.max(0.25, t)})`
+                            : `rgba(213, 94, 0, ${Math.max(0.2, t)})`;
+                          textFill = '#111827';
+                        }
+                      } else {
+                        // Standard IEEE Classic
+                        if (val > 0) {
+                          const t = Math.min(1, Math.pow(ratio, 0.4));
+                          cellFill = isDiagonal
+                            ? `rgba(16, 185, 129, ${Math.max(0.25, t)})`
+                            : `rgba(239, 68, 68, ${Math.max(0.18, t)})`;
+                          textFill = isDiagonal ? '#064e3b' : '#7f1d1d';
+                        }
+                      }
 
                       return (
-                        <div
+                        <g
                           key={j}
                           onMouseEnter={() => setHoveredCell({ actual: i, pred: j, count: val })}
                           onMouseLeave={() => setHoveredCell(null)}
-                          style={{
-                            backgroundColor: isDiagonal
-                              ? `rgba(16, 185, 129, ${Math.max(0.2, intensity)})`
-                              : val > 0
-                              ? `rgba(239, 68, 68, ${Math.max(0.15, intensity * 0.8)})`
-                              : undefined,
-                          }}
-                          className={`h-9 flex items-center justify-center font-mono text-[10px] rounded-xs cursor-pointer transition-transform hover:scale-110 hover:z-10 hover:shadow-md ${
-                            val === 0
-                              ? 'bg-gray-50 dark:bg-zinc-800/40 text-gray-300 dark:text-zinc-600'
-                              : isDiagonal
-                              ? 'text-emerald-950 dark:text-emerald-100 font-bold'
-                              : 'text-red-950 dark:text-red-200 font-semibold'
-                          }`}
+                          className="cursor-pointer"
                         >
-                          {val > 0 ? val : 0}
-                        </div>
+                          <rect
+                            x={x}
+                            y={y}
+                            width="40"
+                            height="40"
+                            rx="2"
+                            fill={cellFill}
+                            stroke={isDiagonal ? (academicStyle === 'monochrome' ? '#000' : '#10b981') : '#e5e7eb'}
+                            strokeWidth={isDiagonal ? '1.5' : '0.5'}
+                          />
+                          <text
+                            x={x + 20}
+                            y={y + 24}
+                            textAnchor="middle"
+                            className="text-[10px] font-bold"
+                            fill={textFill}
+                          >
+                            {val}
+                          </text>
+                        </g>
                       );
                     })}
-                  </React.Fragment>
+                  </g>
                 ))}
-              </div>
+              </svg>
             </div>
           </div>
         )}
@@ -350,7 +493,7 @@ export default function HsiAnalysisView() {
         {/* Hovered cell tooltip bar */}
         <div className="h-6 flex items-center text-xs font-mono">
           {hoveredCell ? (
-            <div className="flex items-center space-x-3 text-gray-700 dark:text-zinc-300">
+            <div className="flex items-center space-x-3 text-gray-800 dark:text-zinc-200">
               <span>
                 <strong>Ground Truth:</strong> C{hoveredCell.actual + 1} ({classNames[hoveredCell.actual]})
               </span>
@@ -368,7 +511,7 @@ export default function HsiAnalysisView() {
               )}
             </div>
           ) : (
-            <span className="text-gray-400 text-[11px]">Hover over matrix cells to inspect class-pair details.</span>
+            <span className="text-gray-500 dark:text-zinc-400 text-[11px]">Hover over matrix cells to inspect class-pair details.</span>
           )}
         </div>
       </div>
@@ -380,14 +523,14 @@ export default function HsiAnalysisView() {
             <h3 className="text-sm font-bold text-gray-900 dark:text-zinc-100">
               Per-Class Classification Breakdown
             </h3>
-            <span className="text-xs text-gray-400 font-mono">
+            <span className="text-xs text-gray-500 dark:text-zinc-400 font-mono">
               Recall, Precision, and F1 per spectral target
             </span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-gray-50 dark:bg-zinc-800/80 border-b border-gray-200 dark:border-zinc-800 text-[10px] text-gray-500 uppercase">
+              <thead className="bg-gray-50 dark:bg-zinc-800/80 border-b border-gray-200 dark:border-zinc-800 text-[10px] text-gray-500 dark:text-zinc-400 uppercase">
                 <tr>
                   <th className="p-3">#</th>
                   <th className="p-3 font-sans">Class Name</th>
@@ -402,20 +545,20 @@ export default function HsiAnalysisView() {
                 {perClass.map((c) => {
                   const isLow = c.accuracy < 90;
                   return (
-                    <tr key={c.class_id} className="hover:bg-gray-50/50 dark:hover:bg-zinc-800/40">
-                      <td className="p-3 text-gray-400">{c.class_id}</td>
-                      <td className="p-3 font-sans font-medium text-gray-800 dark:text-zinc-200">
+                    <tr key={c.class_id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/40">
+                      <td className="p-3 text-gray-500 dark:text-zinc-400">{c.class_id}</td>
+                      <td className="p-3 font-sans font-medium text-gray-900 dark:text-zinc-100">
                         {c.class_name}
                       </td>
-                      <td className="p-3 text-right">{c.samples}</td>
+                      <td className="p-3 text-right text-gray-800 dark:text-zinc-200">{c.samples}</td>
                       <td className="p-3 text-right text-emerald-600 dark:text-emerald-400 font-semibold">{c.correct}</td>
                       <td className="p-3 text-right">
                         <span className={isLow ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-emerald-600 dark:text-emerald-400 font-bold'}>
                           {c.accuracy.toFixed(2)}%
                         </span>
                       </td>
-                      <td className="p-3 text-right">{c.precision.toFixed(2)}%</td>
-                      <td className="p-3 text-right font-semibold">{c.f1.toFixed(2)}%</td>
+                      <td className="p-3 text-right text-gray-800 dark:text-zinc-200">{c.precision.toFixed(2)}%</td>
+                      <td className="p-3 text-right font-semibold text-gray-900 dark:text-zinc-100">{c.f1.toFixed(2)}%</td>
                     </tr>
                   );
                 })}
